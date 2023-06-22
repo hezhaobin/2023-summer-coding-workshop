@@ -1,0 +1,90 @@
+---
+title: "Analyze the diauxic shift expression data using K-means"
+author: "Bin He"
+date: "2023-06-22 (updated `r Sys.Date()`)"
+output: 
+  html_notebook:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r load_library, echo=FALSE}
+# install the package if not already available
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(cowplot))
+suppressPackageStartupMessages(library(ggtext))
+suppressPackageStartupMessages(library(edgeR))
+suppressPackageStartupMessages(library(SummarizedExperiment))
+suppressPackageStartupMessages(require(broom))
+```
+
+## Goal
+Learn to use K-means clustering on the diauxic shift expression time course.
+
+## Data
+The data are from DeRisi et al. 1997 (DOI: 10.1126/science.278.5338.680). Briefly, researchers sampled yeast grown in the YPD media at 2 hour intervals during a regular growth cycle, labeled the cDNA with Cy3. They used a common reference - the cDNA from the 0 time point, labeled with Cy5. By mixing the latter time point samples each with a copy of the 0 min sample, they are able to get the ratio of expression for each gene, which is presented in log2 transformed forms here.
+
+_Data source_
+
+| GEO# | Description | Reference |
+| ---- | ----------- | --------- |
+| GSE28 | Microarray expression patterns of _S. cerevisiae_ wt during the metabolic shift from anaerobic fermentation to aerobic respiration. Samples taken at several time points up to 20.5 h. | DeRisi et al. 1997 |
+
+The analysis below is inspired by a GEOquery workshop offered by Jason Ratcliff at the Iowa Institute of Human Genetics. `getGEO()` will return an ExpressionSet object, which is then converted into a "SummarizedExperiment" object, which is a more modern data structure that is easier to deal with.
+```{r}
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072*10) # increase the local cache size
+gse <- GEOquery::getGEO(GEO = "GSE28", destdir = "../input/")
+gse <- as(object = gse[[1]], "SummarizedExperiment")
+```
+
+_Alternative source_
+
+Instead of processing the GSE data above, I downloaded an expression matrix from this [link](https://www.yeastgenome.org/reference/S000045635) and lightly processed it to remove unnecessary columns and rows, and renamed the column headers
+```{r}
+raw <- read_tsv("../input/20230622-derisi-1997-expression-matrix.tsv")
+```
+
+We will filter this dataset by excluding rows where all time point measurements are within -$\delta$ to $\delta$, with duplicate genes removed
+```{r}
+delta = 2.2
+mat0 = as.matrix(select(raw, -ORF))
+not.use = apply(mat0, 1, function(x) all(x > -delta & x < delta) || any(is.na(x)))
+use = which(!not.use)
+mat = mat0[use,]
+rownames(mat) = raw$ORF[use]
+all(!duplicated(rownames(mat)))
+sprintf("We have a total of %d genes after filtering", nrow(mat))
+```
+There are no duplicated genes in the filtered set.
+
+## Exploratory Analysis
+Let's visualize the data
+```{r}
+dat.long <- raw[use,] %>% 
+  pivot_longer(cols = -ORF, names_to = "time", values_to = "log2") %>% 
+  mutate(time = gsub("t", "", time) %>% as.numeric())
+```
+```{r}
+ggplot(dat.long, aes(x = time, y = log2)) + 
+  geom_line(aes(group = ORF), linewidth = 0.5, alpha = 0.2)
+```
+## Clustering
+We will use the `kmeans()` function in the `stats` package.
+```{r}
+# set random seed
+set.seed(123)
+res <- kmeans(mat, centers = 6, iter.max = 100)
+```
+
+Let's look at one of the clusters
+```{r}
+cluster.labels = tibble(ORF = names(res$cluster), cluster = res$cluster)
+left_join(dat.long, cluster.labels, by = "ORF") %>%
+  filter(!is.na(cluster)) %>% 
+  ggplot(aes(x = time, y = log2)) + 
+  geom_line(aes(group = ORF), linewidth = 0.5, alpha = 0.2) +
+  facet_wrap(~cluster) + 
+  theme_cowplot()
+```
+
