@@ -32,7 +32,7 @@ _Data source_
 | GSE28 | Microarray expression patterns of _S. cerevisiae_ wt during the metabolic shift from anaerobic fermentation to aerobic respiration. Samples taken at several time points up to 20.5 h. | DeRisi et al. 1997 |
 
 The analysis below is inspired by a GEOquery workshop offered by Jason Ratcliff at the Iowa Institute of Human Genetics. `getGEO()` will return an ExpressionSet object, which is then converted into a "SummarizedExperiment" object, which is a more modern data structure that is easier to deal with.
-```{r}
+```
 Sys.setenv("VROOM_CONNECTION_SIZE" = 131072*10) # increase the local cache size
 gse <- GEOquery::getGEO(GEO = "GSE28", destdir = "../input/")
 gse <- as(object = gse[[1]], "SummarizedExperiment")
@@ -77,7 +77,7 @@ set.seed(123)
 res <- kmeans(mat, centers = 6, iter.max = 100)
 ```
 
-Let's look at one of the clusters
+Let's check out the clusters
 ```{r}
 cluster.labels = tibble(ORF = names(res$cluster), cluster = res$cluster)
 left_join(dat.long, cluster.labels, by = "ORF") %>%
@@ -86,5 +86,40 @@ left_join(dat.long, cluster.labels, by = "ORF") %>%
   geom_line(aes(group = ORF), linewidth = 0.5, alpha = 0.2) +
   facet_wrap(~cluster) + 
   theme_cowplot()
+```
+
+Exercise Break: Pick your favorite parameter k and run the Lloyd algorithm 1,0000 times on the 260-gene diauxic shift dataset, each time initialized with a new set of k randomly chosen centers. Construct a histogram of the squared error distortions of the resulting 1,000 outcomes. How many times did you have to run the Lloyd algorithm before finding the run that scored highest among your 1,000 runs?
+```{r}
+# for this test, we will specify the Lloyd algorithm. the default used by the 
+#`kmeans` function is the "Hartigan and Wong 1979" algorithm
+res <- sapply(1:1000, function(i){
+  tmp <- kmeans(mat, centers = 6, iter.max = 100, nstart = 1, algorithm = "Lloyd")
+  return(tmp$tot.withinss/nrow(mat))
+})
+h <- hist(res, breaks = 30, xlab = "Mean within cluster squared error",
+          main = "Histogram of the squared error distortion from 1000 runs",
+          sub = paste0("The run with the lowest error distortion: ", which.min(res)))
+```
+
+## Determining "K" using the Elbow method
+The idea is to measure the total within cluster distortion over a range of K and visualize the relationship between the two. We expect decreasing total within cluster distortion with increasing K. The bent in the curve, i.e., "elbow", is usually where we would like to pick k
+```{r}
+# choose k between 2 to 10
+wss_values <- sapply(1:10, function(i){
+  kmeans(mat, centers = i, nstart = 10)$tot.withinss
+})
+```
+
+```{r}
+tibble(k = 1:10, wss_values) %>% 
+  ggplot(aes(k, wss_values)) + geom_point(size = 3) + geom_line() +
+  ylab("Total within-cluster sum of distortion") + 
+   xlab("Number of clusters: k") +
+  scale_x_continuous(breaks = 1:10) +
+  theme_cowplot()
+```
+
+```{r}
+factoextra::fviz_nbclust(mat, kmeans, method = "wss")
 ```
 
