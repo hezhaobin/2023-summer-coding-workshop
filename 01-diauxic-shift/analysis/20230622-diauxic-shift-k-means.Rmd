@@ -1,5 +1,5 @@
 ---
-title: "Analyze the diauxic shift expression data using K-means"
+title: "Analyze the diauxic shift expression data using K-means and hierarchical clustering"
 author: "Bin He"
 date: "2023-06-22 (updated `r Sys.Date()`)"
 output: 
@@ -14,9 +14,10 @@ output:
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(cowplot))
 suppressPackageStartupMessages(library(ggtext))
-suppressPackageStartupMessages(library(edgeR))
-suppressPackageStartupMessages(library(SummarizedExperiment))
-suppressPackageStartupMessages(require(broom))
+suppressPackageStartupMessages(library(factoextra))
+#suppressPackageStartupMessages(library(edgeR))
+#suppressPackageStartupMessages(library(SummarizedExperiment))
+#suppressPackageStartupMessages(require(broom))
 ```
 
 ## Goal
@@ -69,7 +70,7 @@ dat.long <- raw[use,] %>%
 ggplot(dat.long, aes(x = time, y = log2)) + 
   geom_line(aes(group = ORF), linewidth = 0.5, alpha = 0.2)
 ```
-## Clustering
+## K-means clustering
 We will use the `kmeans()` function in the `stats` package.
 ```{r}
 # set random seed
@@ -79,8 +80,8 @@ res <- kmeans(mat, centers = 6, iter.max = 100)
 
 Let's check out the clusters
 ```{r}
-cluster.labels = tibble(ORF = names(res$cluster), cluster = res$cluster)
-left_join(dat.long, cluster.labels, by = "ORF") %>%
+kmeans.labels = tibble(ORF = names(res$cluster), cluster = res$cluster)
+left_join(dat.long, kmeans.labels, by = "ORF") %>%
   filter(!is.na(cluster)) %>% 
   ggplot(aes(x = time, y = log2)) + 
   geom_line(aes(group = ORF), linewidth = 0.5, alpha = 0.2) +
@@ -121,5 +122,78 @@ tibble(k = 1:10, wss_values) %>%
 
 ```{r}
 factoextra::fviz_nbclust(mat, kmeans, method = "wss")
+```
+
+## Hierarchical clustering
+Use `dist` to convert the expression data into a distance (dissimilarity) matrix. Two different [distance measures](https://uc-r.github.io/kmeans_clustering#distance) will be used, i.e., Euclidean distance (length of a line segment between two points) and Pearson's correlation distance (correlation). The quote below gives a good explanation for which one is used for what. ([reference](https://www.biostars.org/p/460492/))
+
+> A good point to rise is data distribution importance for choosing distance measures in clustering analysis. Thanks This is my understanding of differences between Euclidean distance or Pearson correlation distances application for gene expression clustering: When we are interested in considering overall expression profiles (up and down), correlation-based measures (i.e. Pearson correlation) would be of choice. In other cases, we may want to cluster observations with the same magnitude of dysregulation together. In this way observations with high value of features would cluster together. In these cases, Euclidean distance would be our choice for dissimilarity matrix calculation.
+
+```{r}
+d.euclidean <- get_dist(mat, method = "euclidean")
+d.pearson <- get_dist(mat, method = "pearson")
+```
+
+Perform hierarchical clustering
+```{r}
+#hc1 <- hclust(d.euclidean, method = "average")
+hc1 <- hcut(d.euclidean, k = 6, hc_func = "hclust", hc_method = "average", graph = TRUE)
+hc2 <- hcut(d.pearson, k = 6, hc_func = "hclust", hc_method = "average", graph = TRUE)
+```
+
+Plot the resulting dendrogram
+```{r}
+plot(hc1, cex = 0.1, hang = -1)
+rect.hclust(hc1, k = 6, border = 2:7)
+plot(hc2, cex = 0.1, hang = -1)
+rect.hclust(hc2, k = 6, border = 2:7)
+```
+
+Use the Euclidean distance based clustering labels to show the clustering result (in terms of the expression patterns in each cluster)
+```{r}
+hc1.labels = tibble(ORF = names(hc1$cluster), cluster = hc1$cluster)
+hc2.labels = tibble(ORF = names(hc2$cluster), cluster = hc2$cluster)
+left_join(dat.long, hc1.labels, by = "ORF") %>%
+  filter(!is.na(cluster)) %>% 
+  ggplot(aes(x = time, y = log2)) + 
+  geom_line(aes(group = ORF), linewidth = 0.5, alpha = 0.2) +
+  facet_wrap(~cluster) + 
+  theme_cowplot()
+```
+
+Comparing K-means and Hierarchical clustering
+```{r}
+all(hc.labels$ORF == kmeans.labels$ORF) # check to make sure the orders are the same
+seq.grp <- cbind("HC_Euclidean" = hc1.labels$cluster,
+                 "HC_Pearson" = hc2.labels$cluster,
+                 "K-Means" = kmeans.labels$cluster)
+plot(hc1, cex = 0.1, hang = -1)
+dendextend::colored_bars(seq.grp, as.dendrogram(hc1), add = TRUE, y_shift = -0.1)
+```
+
+Let's compare the three clustering result using the [Rand Index](https://en.wikipedia.org/wiki/Rand_index)
+```{r}
+# from the package `fossil`, copied from 
+# https://davetang.org/muse/2017/09/21/the-rand-index/
+rand.index <- function (group1, group2) 
+{
+    x <- abs(sapply(group1, function(x) x - group1))
+    x[x > 1] <- 1
+    y <- abs(sapply(group2, function(x) x - group2))
+    y[y > 1] <- 1
+    sg <- sum(abs(x - y))/2
+    bc <- choose(dim(x)[1], 2)
+    ri <- 1 - sg/bc
+    return(ri)
+}
+```
+
+```{r}
+RI <- c(
+  "HC_Euclidean vs HC_Pearson" = rand.index(hc1.labels$cluster, hc2.labels$cluster),
+  "HC_Euclidean vs K-Means" = rand.index(hc1.labels$cluster, kmeans.labels$cluster),
+  "HC_Pearson vs K-Means" = rand.index(hc2.labels$cluster, kmeans.labels$cluster)
+)
+print(RI)
 ```
 
