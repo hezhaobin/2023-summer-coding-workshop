@@ -15,6 +15,7 @@ suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(cowplot))
 suppressPackageStartupMessages(library(ggtext))
 suppressPackageStartupMessages(library(factoextra))
+suppressPackageStartupMessages(library(clusterProfiler))
 #suppressPackageStartupMessages(library(edgeR))
 #suppressPackageStartupMessages(library(SummarizedExperiment))
 #suppressPackageStartupMessages(require(broom))
@@ -195,5 +196,29 @@ RI <- c(
   "HC_Pearson vs K-Means" = rand.index(hc2.labels$cluster, kmeans.labels$cluster)
 )
 print(RI)
+```
+
+Export the cluster labels
+```{r}
+as.data.frame(seq.grp) %>% 
+  rownames_to_column(var = "ORF") %>% 
+  as_tibble() %>% 
+  write_tsv(file = "../output/20230726-Kmeans-HC-cluster-labels.tsv")
+```
+
+Take some example gene sets to play with
+```{r}
+# try cluster 1 from Hierarchical clustering with Euclidean distance
+test.set <- filter(hc1.labels, cluster == 1) %>% pull(ORF)
+```
+
+## Enrichment analysis
+One of the purposes of clustering genes is to be able to identify shared biological processes and functions among genes with similar expression patterns. One way to do so is to use the controlled vocabulary such as Gene Ontology (GO). Many online sites exist to analyze yeast gene sets, such as [YeastMine](https://yeastmine.yeastgenome.org/yeastmine/), [EnrichR](https://maayanlab.cloud/YeastEnrichr/enrich), [g:Profiler](https://biit.cs.ut.ee/gprofiler/gost). In this notebook, we will learn to use [clusterProfiler](https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html) (book manual available [here](https://yulab-smu.top/biomedical-knowledge-mining-book/clusterprofiler-go.html)).
+```{r}
+ggo <- enrichGO(gene = test.set,
+                OrgDb = 'org.Sc.sgd.db',
+                ont = "MF",
+                readable = TRUE)
+head(ggo)
 ```
 
