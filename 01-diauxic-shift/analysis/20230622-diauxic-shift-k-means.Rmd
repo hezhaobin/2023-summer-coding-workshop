@@ -215,10 +215,15 @@ test.set <- filter(hc1.labels, cluster == 1) %>% pull(ORF)
 ## Enrichment analysis
 One of the purposes of clustering genes is to be able to identify shared biological processes and functions among genes with similar expression patterns. One way to do so is to use the controlled vocabulary such as Gene Ontology (GO). Many online sites exist to analyze yeast gene sets, such as [YeastMine](https://yeastmine.yeastgenome.org/yeastmine/), [EnrichR](https://maayanlab.cloud/YeastEnrichr/enrich), [g:Profiler](https://biit.cs.ut.ee/gprofiler/gost). In this notebook, we will learn to use [clusterProfiler](https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html) (book manual available [here](https://yulab-smu.top/biomedical-knowledge-mining-book/clusterprofiler-go.html)).
 ```{r}
-ggo <- enrichGO(gene = test.set,
+geneList <- read_csv("../output/20230726-example-gene-set-from-HC-entrezgene-id.csv")
+```
+
+```{r}
+ggo <- enrichGO(gene = geneList$converted_alias,
                 OrgDb = 'org.Sc.sgd.db',
+                keyType = "ENTREZID",
                 ont = "MF",
-                readable = TRUE)
+                readable = FALSE)
 head(ggo)
 ```
 
